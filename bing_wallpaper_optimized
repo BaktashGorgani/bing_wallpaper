@@ -1,0 +1,85 @@
+#!/bin/bash
+# time complexity: original O(n^2), optimized O(n log n)
+# space complexity: O(n)
+
+# Target directory where the image will be saved
+target_dir="$HOME/wallpaper"
+
+# Create the target directory if it doesn't exist
+mkdir -p "$target_dir"
+
+# Sed regex pattern to extract date from filename
+date_pattern='s/.*([[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2})\.jpg/\1/'
+
+# Get the dates and paths of the files in the directory
+declare -A file_dates
+declare -A file_paths
+while IFS= read -r file; do
+    date=$(echo "$file" | sed -E "$date_pattern")
+    file_dates["$date"]=1
+    file_paths["$date"]="$file"
+done < <(find "$target_dir" -type f | sed 1d)
+
+# Bing stores up to 8 images of the day,
+# you can change the amount to download with this variable
+old_files_to_download=8
+
+echo "Downloading the latest $old_files_to_download images of the day"
+
+for (( i=0; i < old_files_to_download; i++ )); do
+    # Extract the date (the day the image is shown)
+    date=$(date -I -d "$i days ago")
+
+    # Skip if the image for the date already exists
+    if [[ -n "${file_dates[$date]}" ]]; then
+        echo "Image of the day for $date already exists"
+        continue
+    fi
+
+    # API URL for Bing's Image of the Day (for USA, change "mkt" for other regions)
+    echo "Downloading image of the day for $date"
+    api_url="https://www.bing.com/HPImageArchive.aspx?format=js&idx=$i&n=1&mkt=us"
+
+    # Fetch the JSON data from Bing's server
+    json_data=$(curl -s "$api_url")
+
+    # Extract the image URL, title, and location from the JSON data
+    image_url="https://www.bing.com$(echo "$json_data" | grep -oP '(?<="url":")[^"]*')"
+    title=$(echo "$json_data" | grep -oP '(?<="title":")[^"]*')
+    location=$(echo "$json_data" | grep -oP '(?<="copyright":")[^,]*' \
+        | sed 's/^[^()]* (\([^)]*\)).*$/\1/')
+
+    # Create the filename: Title + Location + Date
+    filename=$(echo "${title// /_}_${location// /_}_$date.jpg" \
+        | sed 's/[^a-zA-Z0-9_.-]/_/g')
+
+    # Full path for saving the image
+    filepath="$target_dir/$filename"
+
+    curl -s -o "$filepath" "$image_url&rf=LaDigue_UHD.jpg"
+    echo "Image of the Day downloaded as $filepath"
+done
+
+# if we have more than <max_files> files in the directory, delete the oldest ones
+max_files=15
+file_count=${#file_dates[@]}
+
+if (( file_count <= max_files )); then
+    echo "We have not gone over the limit of $max_files files, no cleanup needed"
+else
+    echo "More than $max_files files in the directory, deleting the oldest files"
+
+    # Amount of files to delete
+    amount_to_delete=$(( file_count - max_files ))
+
+    # Sort the dates and delete the oldest files
+    mapfile -t sorted_dates < <(
+        printf '%s\n' "${!file_dates[@]}" | sort
+    )
+
+    for (( i=0; i < amount_to_delete; i++ )); do
+        file_to_delete="${file_paths[${sorted_dates[i]}]}"
+        echo "Deleting $file_to_delete"
+        rm "$file_to_delete"
+    done
+fi

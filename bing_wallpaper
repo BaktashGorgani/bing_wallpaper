@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# Target directory where the image will be saved
+target_dir="$HOME/wallpaper"
+
+# Create the target directory if it doesn't exist
+mkdir -p "$target_dir"
+
+# Get the dates of the files in the directory
+mapfile -t file_dates < <(
+    find "$target_dir" \
+    | sed 1d \
+    | sed -E 's/.*([[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2})\.jpg/\1/' \
+    | sort -n
+)
+
+# Bing stores up to 8 images of the day,
+# you can change the amount to download with this variable
+old_files_to_download=8
+
+echo "Downloading the latest $old_files_to_download images of the day"
+
+for (( i=0; i < old_files_to_download; i++ )); do
+    # Extract the date (the day the image is shown)
+    date=$(date -I -d "$i days ago")
+
+    if [[ ${file_dates[*]} =~ $date ]]; then
+        echo "Image of the day for $date already exists"
+        continue
+    fi
+
+    echo "Downloading image of the day for $date"
+    # API URL for Bing's Image of the Day (for USA, change "mkt" for
+    api_url="https://www.bing.com/HPImageArchive.aspx?format=js&idx=$i&n=1&mkt=us"
+
+    # Fetch the JSON data from Bing's server
+    json_data=$(curl -s "$api_url")
+
+    # Extract the image URL, title, and location from the JSON data
+    image_url="https://www.bing.com$(echo "$json_data" | grep -oP '(?<="url":")[^"]*')"
+    title=$(echo "$json_data" | grep -oP '(?<="title":")[^"]*')
+    location=$(echo "$json_data" | grep -oP '(?<="copyright":")[^,]*' \
+        | sed 's/^[^()]* (\([^)]*\)).*$/\1/')
+
+    # Create the filename: Title + Location + Date
+    filename=$(echo "${title// /_}_${location// /_}_$date.jpg" \
+        | sed 's/[^a-zA-Z0-9_.-]/_/g')
+
+    # Full path for saving the image
+    filepath="$target_dir/$filename"
+
+    curl -s -o "$filepath" "$image_url&rf=LaDigue_UHD.jpg"
+    echo "Image of the Day downloaded as $filepath"
+done
+
+# if we have more than <max_files> files in the directory, delete the oldest ones
+max_files=15
+file_count=$(find "$target_dir" | sed 1d | wc -l)
+
+if (( file_count > max_files )); then
+    echo "More than $max_files files in the directory, deleting the oldest files"
+
+    # Amount of files to delete
+    amount_to_delete=$(( file_count - max_files ))
+
+    # Delete the oldest files
+    for (( i=0; i < amount_to_delete; i++ )); do
+        file_to_delete=$(find "$target_dir" | grep "${file_dates[i]}")
+        echo "Deleting $file_to_delete"
+        rm "$file_to_delete"
+    done
+else
+    echo "We have not reached the limit of $max_files files, no cleanup needed"
+fi
