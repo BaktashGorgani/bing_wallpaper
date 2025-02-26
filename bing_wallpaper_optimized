@@ -12,11 +12,9 @@ mkdir -p "$target_dir"
 date_pattern='s/.*([[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2})\.jpg/\1/'
 
 # Get the dates and paths of the files in the directory
-declare -A file_dates
 declare -A file_paths
 while IFS= read -r file; do
     date=$(echo "$file" | sed -E "$date_pattern")
-    file_dates["$date"]=1
     file_paths["$date"]="$file"
 done < <(find "$target_dir" -type f | sed 1d)
 
@@ -31,7 +29,7 @@ for (( i=0; i < old_files_to_download; i++ )); do
     date=$(date -I -d "$i days ago")
 
     # Skip if the image for the date already exists
-    if [[ -n "${file_dates[$date]}" ]]; then
+    if [[ -n "${file_paths[$date]}" ]]; then
         echo "Image of the day for $date already exists"
         continue
     fi
@@ -62,7 +60,7 @@ done
 
 # if we have more than <max_files> files in the directory, delete the oldest ones
 max_files=15
-file_count=${#file_dates[@]}
+file_count=${#file_paths[@]}
 
 if (( file_count <= max_files )); then
     echo "We have not gone over the limit of $max_files files, no cleanup needed"
@@ -74,7 +72,7 @@ else
 
     # Sort the dates and delete the oldest files
     mapfile -t sorted_dates < <(
-        printf '%s\n' "${!file_dates[@]}" | sort
+        printf '%s\n' "${!file_paths[@]}" | sort
     )
 
     for (( i=0; i < amount_to_delete; i++ )); do
