@@ -12,10 +12,12 @@ mkdir -p "$target_dir"
 date_pattern='s/.*([[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2})\.jpg/\1/'
 
 # Get the dates and paths of the files in the directory
+declare -i file_count
 declare -A file_paths
 while IFS= read -r file; do
     date=$(echo "$file" | sed -E "$date_pattern")
     file_paths["$date"]="$file"
+    file_count+=1
 done < <(find "$target_dir" -type f | sed 1d)
 
 # Bing stores up to 8 images of the day,
@@ -41,11 +43,13 @@ for (( i=0; i < old_files_to_download; i++ )); do
     # Fetch the JSON data from Bing's server
     json_data=$(curl -s "$api_url")
 
-    # Extract the image URL, title, and location from the JSON data
-    image_url="https://www.bing.com$(echo "$json_data" | grep -oP '(?<="url":")[^"]*')"
-    title=$(echo "$json_data" | grep -oP '(?<="title":")[^"]*')
-    location=$(echo "$json_data" | grep -oP '(?<="copyright":")[^,]*' \
-        | sed 's/^[^()]* (\([^)]*\)).*$/\1/')
+    # Extract the image URL, location, and title from the JSON data
+    mapfile -t image_data < <(
+        grep -oP '(?<="url":")[^"]*|(?<="copyright":")[^"(]*|(?<="title":")[^"]*' <<< "$json_data"
+    )
+    image_url="https://www.bing.com${image_data[0]}"
+    location="${image_data[1]}"
+    title="${image_data[2]}"
 
     # Create the filename: Title + Location + Date
     filename=$(echo "${title// /_}_${location// /_}_$date.jpg" \
@@ -56,11 +60,11 @@ for (( i=0; i < old_files_to_download; i++ )); do
 
     curl -s -o "$filepath" "$image_url&rf=LaDigue_UHD.jpg"
     echo "Image of the Day downloaded as $filepath"
+    file_count+=1
 done
 
 # if we have more than <max_files> files in the directory, delete the oldest ones
 max_files=15
-file_count=${#file_paths[@]}
 
 if (( file_count <= max_files )); then
     echo "We have not gone over the limit of $max_files files, no cleanup needed"
