@@ -18,7 +18,7 @@ while IFS= read -r file; do
     date=$(echo "$file" | sed -E "$date_pattern")
     file_paths["$date"]="$file"
     file_count+=1
-done < <(find "$target_dir" -type f | sed 1d)
+done < <(find "$target_dir" -type f)
 
 # Bing stores up to 8 images of the day,
 # you can change the amount to download with this variable
